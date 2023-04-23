@@ -1,0 +1,11 @@
+{
+    "cmake.configureOnOpen": true,
+    "files.associations": {
+        "stddef.h": "c",
+        "ucontext.h": "c",
+        "sstream": "c",
+        "stdio.h": "c",
+        "pthread.h": "c",
+        "random": "c"
+    }
+}

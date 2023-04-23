@@ -1,0 +1,3 @@
+/mnt/d/Coding/OS-Homework/build/CMakeFiles/rebuild_cache.dir
+/mnt/d/Coding/OS-Homework/build/CMakeFiles/edit_cache.dir
+/mnt/d/Coding/OS-Homework/build/CMakeFiles/OS2023_Practices.dir

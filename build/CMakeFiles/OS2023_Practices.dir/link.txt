@@ -1,0 +1,1 @@
+/usr/bin/gcc -g   CMakeFiles/OS2023_Practices.dir/practice-1/coroutine/coroutine.c.o CMakeFiles/OS2023_Practices.dir/practice-1/coroutine/main.c.o  -o OS2023_Practices 

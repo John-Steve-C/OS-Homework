@@ -11,3 +11,7 @@
 - [x] co_status
 
 * Note: Actually, `co_wait` and `co_waitall` is unnecessary in 1-to-N model. (One thread to several coroutines) Think why.
+
+When read/write coroutine, we need to lock
+
+We only have one pool, but many threads

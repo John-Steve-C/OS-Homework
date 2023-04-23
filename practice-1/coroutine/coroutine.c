@@ -7,11 +7,12 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <pthread.h>
 
 #define STACK_SIZE (1024)
 //const int capacity = MAXN;
 
-struct coroutine {
+struct coroutine {  // task struct of coroutine
     coroutine_func func;
     ucontext_t ctx;
     int status, id, ret_value;
@@ -30,7 +31,9 @@ struct coroutine_pool {    // coroutine_pool
 };
 
 struct coroutine_pool *cur_pool = NULL;
-// 理论上进入新线程时就需要新的 pool
+// 只有一个大的 pool
+
+pthread_mutex_t lock;
 
 void pool_init() {
     // open a coroutine_pool
@@ -42,10 +45,14 @@ void pool_init() {
     cur_pool->running_cnt = 0;
     cur_pool->co = malloc(cur_pool->size * sizeof(struct coroutine *));
     memset(cur_pool->co, 0, cur_pool->size * sizeof(struct coroutine *));
+
+    pthread_mutex_init(&lock, NULL);
 }
 
 // 创建新协程
 int co_new(coroutine_func func) {
+    pthread_mutex_lock(&lock);
+
     struct coroutine *co = malloc(sizeof(*co));
     co->func = func;
     co->pool = cur_pool;
@@ -57,6 +64,8 @@ int co_new(coroutine_func func) {
     co->ret_value = 0;
     if (cur_pool->cur_co_id == -1) co->father = NULL;
     else co->father = cur_pool->co[cur_pool->cur_co_id];
+
+    pthread_mutex_unlock(&lock);
 
     // double space
     if (cur_pool->cnt >= cur_pool->size) {
@@ -103,6 +112,7 @@ ucontext_t *get_father_ctx(struct coroutine* co) {
 static void execute() {
 //    uintptr_t ptr = (uintptr_t) low32 | ((uintptr_t) hi32 << 32);
 //    struct coroutine_pool *pool = (struct coroutine_pool *) ptr;
+
     struct coroutine *co = cur_pool->co[cur_pool->cur_co_id];
 
     co->ret_value = co->func();
@@ -118,9 +128,12 @@ static void execute() {
     swapcontext(&co->ctx, get_father_ctx(co));
 }
 
-void co_resume(int id) {
+void co_resume(int id) {    
     struct coroutine *co = cur_pool->co[id];
     if (co == NULL) return;
+
+    pthread_mutex_lock(&lock);
+
     switch (co->status) {
         case READY:
             getcontext(&co->ctx);   // 保存当前上下文到 co->ctx
@@ -137,6 +150,9 @@ void co_resume(int id) {
             // 入口为 execute，执行后返回 uc->link
             // 相当于创建一个新的 context
             makecontext(&co->ctx, (void (*)(void)) execute, 0);
+
+            pthread_mutex_unlock(&lock);
+
             // 当前 ctx 保存到 father,载入 co->ctx
             // 实际上就是执行上面的 execute 函数
             swapcontext(get_father_ctx(co), &co->ctx);
@@ -147,11 +163,15 @@ void co_resume(int id) {
 
             co->status = RUNNING;
             cur_pool->cur_co_id = id;
+
+            pthread_mutex_unlock(&lock);
+
             swapcontext(get_father_ctx(co), &co->ctx);
             break;
         default:
             assert(0);
     }
+
 }
 
 int co_start(int (*routine)(void)) {
