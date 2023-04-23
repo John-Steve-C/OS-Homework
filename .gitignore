@@ -1,3 +1,6 @@
 cmake-build-debug/
+.vscode/
+.idea/
+build/
 
 practice-1/coroutine/process.md
