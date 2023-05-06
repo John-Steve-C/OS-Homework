@@ -3,12 +3,12 @@
 #define COROUTINE_H
 
 typedef long long cid_t;
-#define MAXN 10
-#define UNAUTHORIZED -1
-#define FINISHED 2
-#define RUNNING 1
-#define SUSPEND 3
-#define READY 0
+#define MAXN (50000)
+#define UNAUTHORIZED (-1)
+#define FINISHED (2)
+#define RUNNING (1)
+#define SUSPEND (3)
+#define READY (0)
 
 struct coroutine;
 struct coroutine_pool;  // schedule

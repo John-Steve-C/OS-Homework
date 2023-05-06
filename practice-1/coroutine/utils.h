@@ -1,10 +1,11 @@
+#include <assert.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 static inline void fail(const char* message, const char* function, int line){
     printf("[x] Test failed at %s: %d: %s\n", function, line, message);
     exit(-1);
 }
 
-// undefined reference: 加上 static 即可
+#define assert_msg(cond, fmt, ...) assert((cond) || !fprintf(stderr, (fmt), ##__VA_ARGS__))
