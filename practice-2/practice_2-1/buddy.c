@@ -21,7 +21,7 @@ void *start_addr, *end_addr;
 struct block **page_to_block;    // map
 // 内存中的一个 page 作为 block 的起始时，对应的 block
 
-void add_block(void *p, int rank) {
+static void add_block(void *p, int rank) {
     struct block *new_block = malloc(sizeof(struct block)), *blk = free_area[rank];
 
     while (blk->next != NULL) blk = blk->next;
@@ -37,7 +37,7 @@ void add_block(void *p, int rank) {
     page_to_block[(p - start_addr) / 4096] = new_block; // block start page
 }
 
-void remove_block(struct block *blk) {
+static void remove_block(struct block *blk) {
     if (blk->pre != NULL) blk->pre->next = blk->next;
     if (blk->next != NULL) blk->next->pre = blk->pre;
 
@@ -145,7 +145,9 @@ int return_pages(void *p) {
         else p_buddy = p + 4096 * (1 << rank);  // right
         // check if the neighbor is real buddy
         int pos_buddy = (p_buddy - start_addr) / 4096;
-        if (pos_buddy >= pageCnt || page_to_block[pos_buddy] == NULL || page_to_block[pos_buddy]->rank != rank || page_to_block[pos_buddy]->used) break;    // p don't have buddy
+        if (pos_buddy >= pageCnt || page_to_block[pos_buddy] == NULL || page_to_block[pos_buddy]->rank != rank ||
+            page_to_block[pos_buddy]->used)
+            break;    // p don't have buddy
         else {
             // remove p and buddy
             remove_block(page_to_block[pos_buddy]);

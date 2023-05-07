@@ -6,7 +6,7 @@
  *   but the parameter we send into the function is the multiple(DSIZE),
  *   so we needn't extend too much space.
  *
- * And I only use first-fit to scan free blocks
+ * And I complete first-fit & next-fit to scan free blocks
  */
 #include <assert.h>
 #include <stdio.h>
