@@ -1,6 +1,6 @@
 .PHONY: all
 all:
-	gcc -o code main.c buddy.c -g -fsanitize=address -fsanitize=leak
+	gcc -o code main.c buddy.c -g
 
 run:
 	./code

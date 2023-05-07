@@ -15,6 +15,7 @@ struct block {
 // 1 rank = 4K = 4096 Byte
 
 struct block *free_area[MAXRANK];    // linked list
+struct block *free_area_tail[MAXRANK];  // tail of each linked list
 int free_cnt[MAXRANK], pageCnt;
 void *start_addr, *end_addr;
 
@@ -22,9 +23,10 @@ struct block **page_to_block;    // map
 // 内存中的一个 page 作为 block 的起始时，对应的 block
 
 static void add_block(void *p, int rank) {
-    struct block *new_block = malloc(sizeof(struct block)), *blk = free_area[rank];
+    struct block *new_block = malloc(sizeof(struct block)), *blk = free_area_tail[rank];
 
-    while (blk->next != NULL) blk = blk->next;
+    // too bad! 不能每次从头开始找
+//    while (blk->next != NULL) blk = blk->next;
     blk->next = new_block;
 
     new_block->rank = rank;
@@ -35,11 +37,17 @@ static void add_block(void *p, int rank) {
 
     free_cnt[rank]++;
     page_to_block[(p - start_addr) / 4096] = new_block; // block start page
+
+    free_area_tail[rank] = new_block;
 }
 
 static void remove_block(struct block *blk) {
     if (blk->pre != NULL) blk->pre->next = blk->next;
     if (blk->next != NULL) blk->next->pre = blk->pre;
+
+    if (blk == free_area_tail[blk->rank]) {
+        free_area_tail[blk->rank] = blk->pre;
+    }
 
     free_cnt[blk->rank]--;
     page_to_block[(blk->addr - start_addr) / 4096] = NULL;
@@ -74,6 +82,8 @@ int init_page(void *p, int pgcount) {
         free_area[i]->rank = i;
         free_area[i]->addr = NULL;
         free_area[i]->used = 0;
+        // tail pointer
+        free_area_tail[i] = free_area[i];
     }
 
     // 二进制拆分, pgcount = 2^10 + 2^8 + ...
