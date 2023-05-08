@@ -3,4 +3,8 @@ cmake-build-debug/
 .idea/
 build/
 
-practice-1/coroutine/process.md
+practice-2/practice_2-1/test*
+practice-2/practice_2-2/mdriver
+practice-2/practice_2-2/*.o
+
+process.md

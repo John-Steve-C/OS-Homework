@@ -6,7 +6,7 @@
  *   but the parameter we send into the function is the multiple(DSIZE),
  *   so we needn't extend too much space.
  *
- * And I complete first-fit & next-fit to scan free blocks
+ * And I use first-fit/next-fit to scan free blocks
  */
 #include <assert.h>
 #include <stdio.h>
@@ -50,6 +50,7 @@
 /* Basic constants and macros */
 #define WSIZE 4 /* Word and header/footer size (bytes) */
 #define DSIZE 8 /* Double word size (bytes) */
+#define BSIZE 8 /* empty block size (HEADER+FOOTER)*/
 #define CHUNKSIZE (1<<8) /* Extend heap by this amount (bytes) */
 
 #define MAX(x, y) ((x) > (y)? (x) : (y))
@@ -60,10 +61,10 @@
 
 /* Read and write a word at address p */
 #define GET(p) (*(unsigned int *) (p))
-#define PUT(p, val) (*(unsigned int *) (p) = (val))
+#define SET(p, val) (*(unsigned int *) (p) = (val))
 
 /* Read the size and allocated fields from address p */
-#define GET_SIZE(p) (GET(p) & ~0x7)
+#define GET_SIZE(p) (GET(p) & ~0x7)     // *p is 32-bit, the high 28 bit saved the block size
 #define GET_ALLOC(p) (GET(p) & 0x1)     // = 1 means this block has been allocated
 
 /* Given block ptr bp, compute address of its header and footer */
@@ -71,7 +72,7 @@
 #define FOOTER(bp) ((char *) (bp) + GET_SIZE(HEADER(bp)) - DSIZE)
 
 /* Given block ptr bp, compute address of next and previous blocks */
-#define NEXT_BLOCK(bp) ((char *) (bp) + GET_SIZE(((char *) (bp) - WSIZE)))
+#define NEXT_BLOCK(bp) ((char *) (bp) + GET_SIZE(HEADER(bp)))
 #define PREV_BLOCK(bp) ((char *) (bp) - GET_SIZE(((char *) (bp) - DSIZE)))
 
 // choose which kind of fit
@@ -80,7 +81,7 @@
 
 // point at the pos after the prologue block (size = 2 * WSIZE)
 char *heap_list;
-char *last_fit_pos;
+char *last_fit_pos; // used for next-fit
 
 static void *merge_block(void *bp) {
     size_t prev_alloc = GET_ALLOC(FOOTER(PREV_BLOCK(bp)));
@@ -95,8 +96,8 @@ static void *merge_block(void *bp) {
 #endif
 
         size += GET_SIZE(HEADER(NEXT_BLOCK(bp)));
-        PUT(HEADER(bp), PACK(size,0));
-        PUT(FOOTER(bp), PACK(size,0));
+        SET(HEADER(bp), PACK(size,0));
+        SET(FOOTER(bp), PACK(size,0));
     } else if (!prev_alloc && next_alloc) {
 
 #ifdef NEXT_FIT
@@ -104,8 +105,8 @@ static void *merge_block(void *bp) {
 #endif
 
         size += GET_SIZE(HEADER(PREV_BLOCK(bp)));
-        PUT(FOOTER(bp), PACK(size,0));
-        PUT(HEADER(PREV_BLOCK(bp)), PACK(size,0));
+        SET(FOOTER(bp), PACK(size,0));
+        SET(HEADER(PREV_BLOCK(bp)), PACK(size,0));
         bp = PREV_BLOCK(bp);
     } else {
 
@@ -114,8 +115,8 @@ static void *merge_block(void *bp) {
 #endif
 
         size += GET_SIZE(HEADER(PREV_BLOCK(bp))) + GET_SIZE(FOOTER(NEXT_BLOCK(bp)));
-        PUT(HEADER(PREV_BLOCK(bp)), PACK(size,0));
-        PUT(FOOTER(NEXT_BLOCK(bp)), PACK(size,0));
+        SET(HEADER(PREV_BLOCK(bp)), PACK(size,0));
+        SET(FOOTER(NEXT_BLOCK(bp)), PACK(size,0));
         bp = PREV_BLOCK(bp);
     }
 
@@ -132,9 +133,9 @@ static void *extend_heap(size_t words) {
     if ((long)(bp = mem_sbrk(size)) == -1) return NULL;
 
     // Initialize free block header/footer and the epilogue header
-    PUT(HEADER(bp), PACK(size,0));
-    PUT(FOOTER(bp), PACK(size,0));
-    PUT(HEADER(NEXT_BLOCK(bp)), PACK(0,1));
+    SET(HEADER(bp), PACK(size,0));
+    SET(FOOTER(bp), PACK(size,0));
+    SET(HEADER(NEXT_BLOCK(bp)), PACK(0,1));
 
     return merge_block(bp);
 }
@@ -166,14 +167,17 @@ static void place(void *bp, size_t size) {
     size_t csize = GET_SIZE(HEADER(bp));
 
     if ((csize - size) >= (2*DSIZE)) {
-        PUT(HEADER(bp), PACK(size,1));
-        PUT(FOOTER(bp), PACK(size,1));
+        // split
+        SET(HEADER(bp), PACK(size,1));
+        SET(FOOTER(bp), PACK(size,1));
+
         bp = NEXT_BLOCK(bp);
-        PUT(HEADER(bp), PACK(csize-size,0));
-        PUT(FOOTER(bp), PACK(csize-size,0));
+        SET(HEADER(bp), PACK(csize-size,0));
+        SET(FOOTER(bp), PACK(csize-size,0));
+//        merge_block(bp);
     } else {
-        PUT(HEADER(bp), PACK(csize,1));
-        PUT(FOOTER(bp), PACK(csize,1));
+        SET(HEADER(bp), PACK(csize,1));
+        SET(FOOTER(bp), PACK(csize,1));
     }
 }
 
@@ -184,11 +188,11 @@ int mm_init(void) {
     // Create the initial empty heap
     if ((heap_list = mem_sbrk(4 * WSIZE)) == (void*)-1) return -1;
 
-    PUT(heap_list, 0);                                       // Alignment padding
-    PUT(heap_list + (WSIZE * 1), PACK(DSIZE,1));    // Prologue header
-    PUT(heap_list + (WSIZE * 2), PACK(DSIZE,1));    // Prologue footer
-    PUT(heap_list + (WSIZE * 3), PACK(0,1));   // Epilogue header
-    heap_list += (2*WSIZE);
+    SET(heap_list, 0);                                       // Alignment padding
+    SET(heap_list + (WSIZE * 1), PACK(BSIZE,1));    // Prologue header
+    SET(heap_list + (WSIZE * 2), PACK(BSIZE,1));    // Prologue footer
+    SET(heap_list + (WSIZE * 3), PACK(0,1));   // Epilogue header
+    heap_list += (BSIZE);
 
 #ifdef NEXT_FIT
     last_fit_pos = heap_list;
@@ -211,8 +215,9 @@ void *malloc(size_t size) {
 
     // Adjust block size to include overhead and alignment reqs
     // obviously it's the multiple of 8(DSIZE)
-    if (size <= DSIZE) asize = 2*DSIZE;
-    else asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
+//    if (size <= DSIZE) asize = 2*DSIZE;
+//    else asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
+    asize = DSIZE * ((size + DSIZE - 1) / DSIZE) + BSIZE;
 
     // Search the free list for a fit
     if ((bp = find_fit(asize)) != NULL) {
@@ -228,14 +233,14 @@ void *malloc(size_t size) {
 }
 
 /*
- * free - We don't know how to free a block.  So we ignore this call.
- *      Computers have big memories; surely it won't be a problem.
+ * free - change the allocation bit into 0 of HEADER & FOOTER
+ *        and remember to merge the block
  */
 void free(void *ptr) {
     if (ptr == NULL) return;
     size_t size = GET_SIZE(HEADER(ptr));
-    PUT(HEADER(ptr), PACK(size,0));
-    PUT(FOOTER(ptr), PACK(size,0));
+    SET(HEADER(ptr), PACK(size,0));
+    SET(FOOTER(ptr), PACK(size,0));
     merge_block(ptr);
 }
 
@@ -267,7 +272,7 @@ void *realloc(void *oldptr, size_t size) {
     }
 
     /* Copy the old data. */
-    oldsize = *SIZE_PTR(oldptr);
+    oldsize = *SIZE_PTR(oldptr);        //  oldsize = GET_SIZE(HEADER(oldptr))
     if (size < oldsize) oldsize = size;
     memcpy(newptr, oldptr, oldsize);
 

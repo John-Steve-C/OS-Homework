@@ -102,6 +102,7 @@ int test_multithread() {
     for (int i = 0; i < CNT; ++i) {
         pthread_join(threads[i], NULL);
     }
+    assert(total_coroutine_count == 200);
 //    assert(total_coroutine_count == 10000);
     return 0;
 }
@@ -151,6 +152,7 @@ int main(){
     printf("Main: test getid finished.\n");
 
     // test multi-thread
+    printf("\nMulti-thread Test Start!\n");
     test_multithread();
     test_multithread_timer();
     printf("Finish running.\n");

@@ -10,7 +10,8 @@
 #include <pthread.h>
 #include <stdio.h>
 
-#define STACK_SIZE (1<<18)
+// the stack size of each thread(coroutine_pool)
+#define STACK_SIZE (1<<20)
 //const int capacity = MAXN;
 
 struct coroutine {  // task struct of coroutine
@@ -206,14 +207,15 @@ static void execute() {
     }
     sch->co_running_cnt--;
 
-//    printf("coroutine %d finished!\n", co->id);
+    printf("coroutine %d finished!\n", co->id);
 
     // auto delete the coroutine
 //    co_delete(co);
 //    pool->co[id] = NULL;
 //    --pool->cnt;
 
-    swapcontext(&co->ctx, get_father_ctx(co));
+    // ctx->uc_link 已经保存, 不需要手动跳转？
+//    swapcontext(&co->ctx, get_father_ctx(co));
 }
 
 void co_resume(int id) {
@@ -311,17 +313,17 @@ int co_getret(int cid) {
     return sch->co[cid]->ret_value;
 }
 
-//static void _save_stack(struct coroutine *co, char *top) {
-//    char dummy = 0;
-//    assert(top - &dummy <= STACK_SIZE);
-//    if (co->stack_size < top - &dummy) {
-//        free(co->stack);
-//        co->stack_size = top - &dummy;
-//        co->stack = malloc(co->stack_size);
-//    }
-//    co->size = top - &dummy;
-//    memcpy(co->stack, &dummy, co->size);
-//}
+static void _save_stack(struct coroutine *co, char *top) {
+    char dummy = 0; // &dummy stands for current stack top
+    assert(top - &dummy <= STACK_SIZE);
+    if (co->stack_size < top - &dummy) {
+        free(co->stack);
+        co->stack_size = top - &dummy;
+        co->stack = malloc(co->stack_size);
+    }
+    co->size = top - &dummy;
+    memcpy(co->stack, &dummy, co->size);
+}
 
 int co_yield() {
 //    assert(cur_pool->cur_co_id >= 0);
@@ -359,7 +361,7 @@ int co_wait(int cid) {
 //            cur_pool->co[i]->status = SUSPEND;
 //        }
 //    }
-    if (sch->co[cid]->status != FINISHED) co_resume(cid);
+    while (sch->co[cid]->status != FINISHED) co_resume(cid);
 }
 
 int co_status(int cid) {
