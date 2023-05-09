@@ -11,7 +11,7 @@
 #include <stdio.h>
 
 // the stack size of each thread(coroutine_pool)
-#define STACK_SIZE (1<<20)
+#define STACK_SIZE (1<<16)
 //const int capacity = MAXN;
 
 struct coroutine {  // task struct of coroutine
@@ -23,30 +23,20 @@ struct coroutine {  // task struct of coroutine
     char *stack;        // 每个协程的栈指针
     struct coroutine *father;   // 创造它的父协程
     struct thread_data *thread; // 属于哪个线程
-
-    // pthread_mutex_t lock;
 };
 
-//struct coroutine_pool {    // coroutine_pool
-//    char stack[1024 * STACK_SIZE];    // 当前协程池分配的栈空间
-//    ucontext_t main;
-//    int cur_co_id;            // 当前运行的协程
-//    int cnt, size, running_cnt; // 当前运行的协程总数
-//    struct coroutine **co;  // 二维指针,不直接存值
-//};
-
-struct thread_data {    // 记录一个线程的数据
+struct thread_data {    // coroutine_pool
+    char stack[1024 * STACK_SIZE];    // 当前协程池分配的栈空间
+    ucontext_t main;
+    int cur_co_id;            // 当前运行的协程
+    int cnt, size, running_cnt; // 当前运行的协程总数
+    struct coroutine **co;  // 二维指针,不直接存值
     pthread_t thread_id;
-    ucontext_t main;    // stands for main coroutine
-    int cur_co_id;      // 当前线程在执行的协程
 };
 
 struct schedule {   // 最外层的结构
-    char stack[1024 * STACK_SIZE];    // 当前分配的栈空间
-    struct coroutine **co;  // 二维指针,不直接存值
     struct thread_data **threads;
-    int thread_cnt, co_cnt; // 多个线程中的总协程数
-    int thread_size, co_size, co_running_cnt;
+    int thread_cnt, thread_size; // 多个线程中的总协程数
 };
 
 struct schedule *sch = NULL;
@@ -77,35 +67,19 @@ void schedule_init() {
     sch->threads = malloc(sch->thread_size * sizeof(struct thread_data *));
     memset(sch->threads, 0, sch->thread_size * sizeof(struct thread_data *));
 
-    sch->co_cnt = 0;
-    sch->co_running_cnt = 0;
-    sch->co_size = 16;
-    sch->co = malloc(sch->co_size * sizeof(struct coroutine *));
-    memset(sch->co, 0, sch->co_size * sizeof(struct coroutine *));
-
     pthread_mutex_unlock(&lock_schedule);
 }
-
-//void pool_init() {
-//    // open a coroutine_pool
-//
-//    cur_pool = malloc(sizeof(*cur_pool));
-//    cur_pool->cur_co_id = -1;
-//    cur_pool->cnt = 0;
-//    cur_pool->size = 16;
-//    cur_pool->running_cnt = 0;
-//    cur_pool->co = malloc(cur_pool->size * sizeof(struct coroutine *));
-//    memset(cur_pool->co, 0, cur_pool->size * sizeof(struct coroutine *));
-//
-////    pthread_mutex_init(&lock, NULL);
-//}
 
 void thread_new(pthread_t pid) {
     pthread_mutex_lock(&lock_thread);
 
-    struct thread_data * new_thr = malloc(sizeof(*new_thr));
-    new_thr->thread_id = pid;
-    new_thr->cur_co_id = -1;    // main coroutine
+    struct thread_data * thr = malloc(sizeof(*thr)); // sizeof(thread_data)
+    thr->thread_id = pid;
+    thr->cur_co_id = -1;    // main coroutine
+    thr->size = 16;
+    thr->cnt = 0;
+    thr->co = malloc(thr->size * sizeof(struct coroutine *));
+    memset(thr->co, 0, thr->size * sizeof(struct coroutine *));
 
     if (sch->thread_cnt >= sch->thread_size) {
         // double space
@@ -113,10 +87,10 @@ void thread_new(pthread_t pid) {
         sch->thread_size *= 2;
         sch->threads = realloc(sch->threads, 2 * size * sizeof(struct thread_data *));
         memset(sch->threads + size, 0, size * sizeof(struct thread_data *));
-        sch->threads[size] = new_thr;
+        sch->threads[size] = thr;
     } else {
         // normal insert
-        sch->threads[sch->thread_cnt] = new_thr;
+        sch->threads[sch->thread_cnt] = thr;
     }
     sch->thread_cnt++;
 
@@ -127,34 +101,31 @@ void thread_new(pthread_t pid) {
 int co_new(coroutine_func func) {
     pthread_mutex_lock(&lock_coroutine);
 
+    struct thread_data *cur_thr = get_cur_thread_data();
     struct coroutine *co = malloc(sizeof(*co));
     co->func = func;
-    co->thread = get_cur_thread_data();
-    co->id = sch->co_cnt;
+    co->thread = cur_thr;
+    co->id = cur_thr->cnt;
     co->status = READY;
     co->stack = NULL;
     co->size = 0;
     co->stack_size = 0;
     co->ret_value = 0;
     if (co->thread->cur_co_id == -1) co->father = NULL;
-    else co->father = sch->co[co->thread->cur_co_id];
-
-    // pthread_mutex_init(&co->lock, NULL);
-
-    // pthread_mutex_unlock(&lock);
+    else co->father = cur_thr->co[cur_thr->cur_co_id];
 
     // double space
-    if (sch->co_cnt >= sch->co_size) {
-        int size = sch->co_size;
-        sch->co_size *= 2;
-        sch->co = realloc(sch->co, 2 * size * sizeof(struct coroutine *));
-        memset(sch->co + size, 0, size * sizeof(struct coroutine *));
-        sch->co[size] = co;
+    if (cur_thr->cnt >= cur_thr->size) {
+        int size = cur_thr->size;
+        cur_thr->size *= 2;
+        cur_thr->co = realloc(cur_thr->co, 2 * size * sizeof(struct coroutine *));
+        memset(cur_thr->co + size, 0, size * sizeof(struct coroutine *));
+        cur_thr->co[size] = co;
     } else {
         // normal insert
-        sch->co[sch->co_cnt] = co;
+        cur_thr->co[cur_thr->cnt] = co;
     }
-    sch->co_cnt++;
+    cur_thr->cnt++;
 
     pthread_mutex_unlock(&lock_coroutine);
 
@@ -166,27 +137,26 @@ void co_delete(struct coroutine *co) {
     free(co);
 }
 
-void co_close() {
-    for (int i = 0; i < sch->co_size; ++i) {
-        struct coroutine *co = sch->co[i];
-        if (co) co_delete(co);
-    }
-    free(sch->co);
-    sch->co = NULL;
-    free(sch);
-    sch = NULL;
-}
+//void co_close() {
+//    for (int i = 0; i < sch->co_size; ++i) {
+//        struct coroutine *co = sch->co[i];
+//        if (co) co_delete(co);
+//    }
+//    free(sch->co);
+//    sch->co = NULL;
+//    free(sch);
+//    sch = NULL;
+//}
 
 ucontext_t *get_father_ctx(struct coroutine* co) {
     if (co->father == NULL) return &co->thread->main;
     else return &co->father->ctx;
 }
 
-static void execute() {
-//    uintptr_t ptr = (uintptr_t) low32 | ((uintptr_t) hi32 << 32);
-//    struct coroutine_pool *pool = (struct coroutine_pool *) ptr;
-
-    struct coroutine *co = sch->co[get_cur_thread_data()->cur_co_id];
+static void execute(uint32_t low32, uint32_t hi32) {
+    uintptr_t ptr = (uintptr_t) low32 | ((uintptr_t) hi32 << 32);
+    struct thread_data *thr = (struct thread_data *) ptr;
+    struct coroutine *co = thr->co[thr->cur_co_id];
 
     co->ret_value = co->func();
     co->status = FINISHED;
@@ -197,9 +167,9 @@ static void execute() {
         // 执行完应该回退到父协程
         co->thread->cur_co_id = co->father->id;
     }
-    sch->co_running_cnt--;
+//    sch->co_running_cnt--;
 
-    printf("coroutine %d finished! And going to run co %d\n", co->id, co->thread->cur_co_id);
+//    printf("coroutine %d finished! And going to run co %d\n", co->id, co->thread->cur_co_id);
 
     // auto delete the coroutine
 //    co_delete(co);
@@ -213,7 +183,8 @@ static void execute() {
 void co_resume(int id) {
     // pthread_mutex_lock(&lock);
 
-    struct coroutine *co = sch->co[id];
+    struct thread_data *cur_thr = get_cur_thread_data();
+    struct coroutine *co = cur_thr->co[id];
     if (co == NULL) return;
 
     // pthread_mutex_lock(&co->lock);
@@ -223,17 +194,17 @@ void co_resume(int id) {
             getcontext(&co->ctx);   // 保存当前上下文到 co->ctx
             // 分配栈空间
             // can't be the same
-            co->stack = co->ctx.uc_stack.ss_sp = sch->stack + STACK_SIZE * sch->co_cnt;
+            co->stack = co->ctx.uc_stack.ss_sp = cur_thr->stack + STACK_SIZE * cur_thr->cnt;
             co->ctx.uc_stack.ss_size = STACK_SIZE;
             co->ctx.uc_link = get_father_ctx(co);
             co->status = RUNNING;
-            sch->co_running_cnt++;
+//            sch->co_running_cnt++;
             co->thread->cur_co_id = id;
 
-//            uintptr_t ptr = (uintptr_t) cur_pool;
+            uintptr_t ptr = (uintptr_t) cur_thr;
             // 入口为 execute，执行后返回 uc->link
             // 相当于创建一个新的 context
-            makecontext(&co->ctx, (void (*)(void)) execute, 0);
+            makecontext(&co->ctx, (void (*)(void)) execute, 2, ptr, (uint32_t) (ptr >> 32));
 
             // pthread_mutex_unlock(&lock);
 
@@ -248,7 +219,7 @@ void co_resume(int id) {
 //            memcpy(sch->stack + STACK_SIZE - co->size, co->stack, co->size);
 
             co->status = RUNNING;
-            co->thread->cur_co_id = id;
+            cur_thr->cur_co_id = id;
 
             // pthread_mutex_unlock(&lock);
             swapcontext(get_father_ctx(co), &co->ctx);
@@ -278,15 +249,14 @@ int co_start(int (*routine)(void)) {
     pthread_t cur_thread = pthread_self();
     if (get_cur_thread_data() == NULL) thread_new(cur_thread);
 
-    printf("enter co_start by %d\n", get_cur_thread_data()->cur_co_id);
+//    printf("enter co_start by %d\n", get_cur_thread_data()->cur_co_id);
 
 //    printf("cur_thread = %lu\n", cur_thread);
     // new
     int id = co_new(routine);
     assert(id != -1);
 
-    printf("new coroutine = %d \n", id);
-//    printf("%d\n", sch->co_cnt);
+//    printf("new coroutine = %d \n", id);
 
     // running at once after it's created
 //    co_yield();
@@ -305,9 +275,10 @@ int co_getid() {
 
 int co_getret(int cid) {
     // important! when query ret_value, it must be finished!
-    while (sch->co[cid]->status != FINISHED) co_yield();
-    assert(sch->co[cid]->status == FINISHED);
-    return sch->co[cid]->ret_value;
+    struct thread_data *cur_thr = get_cur_thread_data();
+    if (cur_thr->co[cid]->status != FINISHED) co_wait(cid);
+    assert(cur_thr->co[cid]->status == FINISHED);
+    return cur_thr->co[cid]->ret_value;
 }
 
 int co_yield() {
@@ -316,7 +287,7 @@ int co_yield() {
     int old_id = cur_thread->cur_co_id;
 
     if (cur_thread->cur_co_id >= 0) {
-        struct coroutine *cur_co = sch->co[cur_thread->cur_co_id];
+        struct coroutine *cur_co = cur_thread->co[cur_thread->cur_co_id];
         // TODO: 如何暂存当前栈空间？
 //        _save_stack(cur_co, cur_pool->stack + STACK_SIZE);
 
@@ -326,14 +297,14 @@ int co_yield() {
             int new_id = cur_co->father->id;
             cur_thread->cur_co_id = new_id;
         }
-        printf("yield co: %d -> co: %d\n", old_id, cur_thread->cur_co_id);
+//        printf("yield co: %d -> co: %d\n", old_id, cur_thread->cur_co_id);
         swapcontext(&cur_co->ctx, get_father_ctx(cur_co));
     } else {
         // cur_co_id == -1, return to root
-        for (int i = 0;i < sch->co_cnt; ++i) {
+        for (int i = 0;i < cur_thread->cnt; ++i) {
             // yield 给同线程下的其他协程
-            if (sch->co[i]->status != FINISHED && sch->co[i]->thread->thread_id == cur_thread->thread_id) {
-                printf("yield co: %d -> co: %d\n", old_id, i);
+            if (cur_thread->co[i]->status != FINISHED) {
+//                printf("yield co: %d -> co: %d\n", old_id, i);
                 co_resume(i);
                 break;
             }
@@ -342,8 +313,9 @@ int co_yield() {
 }
 
 int co_waitall() {
-    for (int i = 0; i < sch->co_size; ++i) {
-        if (sch->co[i] != NULL && sch->co[i]->status != FINISHED) co_wait(i);
+    struct thread_data *cur_thr = get_cur_thread_data();
+    for (int i = 0; i < cur_thr->size; ++i) {
+        if (cur_thr->co[i] != NULL && cur_thr->co[i]->status != FINISHED) co_wait(i);
     }
 }
 
@@ -354,15 +326,17 @@ int co_wait(int cid) {
 //        }
 //    }
 //    sch->co[get_cur_thread_data()->cur_co_id]->status = SUSPEND;
-    while (sch->co[cid]->status != FINISHED) co_resume(cid);
+    struct thread_data *cur_thr = get_cur_thread_data();
+    while (cur_thr->co[cid]->status != FINISHED) co_resume(cid);
 }
 
 int co_status(int cid) {
+    struct thread_data *cur_thr = get_cur_thread_data();
     if (cid == -1) { // main_coroutine
         return RUNNING; // main coroutine is always running?
-    } else if (sch->co[cid] == NULL || sch->co[cid] != NULL && sch->co[cid]->thread->thread_id != pthread_self()) {
+    } else if (cur_thr->co[cid] == NULL || cur_thr->co[cid] != NULL && cur_thr->thread_id != pthread_self()) {
         return UNAUTHORIZED;
     } else {
-        return sch->co[cid]->status;
+        return cur_thr->co[cid]->status;
     }
 }

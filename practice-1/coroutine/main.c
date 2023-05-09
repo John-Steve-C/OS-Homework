@@ -56,7 +56,7 @@ int test_multithread_coroutine_inner() {
 }
 
 int test_multithread_coroutine() {
-    printf("Running: %d, thread: %ld\n", co_getid(), pthread_self());
+//    printf("Running: %d, thread: %ld\n", co_getid(), pthread_self());
     const int CNT = 10;
     cid_t coroutine[CNT];
     for (int i = 0; i < CNT; ++i) {
@@ -72,12 +72,12 @@ int test_multithread_coroutine() {
     }
     co_wait(coroutine[CNT - 1]);
     assert(co_status(coroutine[CNT - 1]) == FINISHED);
-    printf("Coroutine finished: %d\n", co_getid());
+//    printf("Coroutine finished: %d\n", co_getid());
     return 1;
 }
 
 void* test_multithread_thread(void *ptr) {
-    printf("Thread: %ld\n", pthread_self());
+//    printf("Thread: %ld\n", pthread_self());
     const int CNT = 20;
     cid_t coroutine[CNT];
     for (int i = 0; i < CNT; ++i) {
@@ -87,11 +87,11 @@ void* test_multithread_thread(void *ptr) {
         assert(co_getret(coroutine[i]) == 1);
         assert(co_status(coroutine[i]) == FINISHED);
     }
-    printf("Thread finished: %ld\n", pthread_self());
+//    printf("Thread finished: %ld\n", pthread_self());
 }
 
 int test_multithread() {
-    const int CNT = 1;  // 50
+    const int CNT = 50;  // 50
     // if CNT = 1 is wrong, that means your single thread is wrong!!!
     pthread_t threads[CNT];
     total_coroutine_count = 0;
@@ -102,9 +102,8 @@ int test_multithread() {
     for (int i = 0; i < CNT; ++i) {
         pthread_join(threads[i], NULL);
     }
-    printf("%d\n", total_coroutine_count);
-    assert(total_coroutine_count == 200);
-//    assert(total_coroutine_count == 10000);
+//    printf("%d\n", total_coroutine_count);
+    assert(total_coroutine_count == 10000);
     return 0;
 }
 
@@ -132,13 +131,13 @@ int main(){
         if(co_getret(coroutine[i]) != 100) fail("Coroutine return value failed", __func__, __LINE__);
     }
     // test nested creation
-    printf("\nNested creation start!--------------------\n");
+//    printf("\nNested creation start!--------------------\n");
 
     coroutine[0] = co_start(nested_costart);
     if(coroutine[0] != 10) fail("Nested coroutine ID not equal", __func__, __LINE__);
     if(co_getret(coroutine[0]) != 200) fail("Nested coroutine return value failed", __func__, __LINE__);
 
-    printf("Nested creation passed!\n");
+//    printf("Nested creation passed!\n");
 
     // test nested and get status
     for(int i = 0; i < 12; ++i) if(co_status(i) != FINISHED) fail("Coroutine failed at status error", __func__, __LINE__);

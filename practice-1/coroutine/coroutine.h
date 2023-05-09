@@ -11,7 +11,7 @@ typedef long long cid_t;
 #define READY (0)
 
 struct coroutine;
-struct thread_data;  // schedule
+struct thread_data;
 struct schedule;
 typedef int (*coroutine_func)(void);    // 定义函数指针
 //typedef void (*coroutine_func)(struct coroutine_pool *, void *ud);    // 定义函数指针
