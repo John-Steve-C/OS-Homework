@@ -102,6 +102,7 @@ int test_multithread() {
     for (int i = 0; i < CNT; ++i) {
         pthread_join(threads[i], NULL);
     }
+    printf("%d\n", total_coroutine_count);
     assert(total_coroutine_count == 200);
 //    assert(total_coroutine_count == 10000);
     return 0;
@@ -131,9 +132,14 @@ int main(){
         if(co_getret(coroutine[i]) != 100) fail("Coroutine return value failed", __func__, __LINE__);
     }
     // test nested creation
+    printf("\nNested creation start!--------------------\n");
+
     coroutine[0] = co_start(nested_costart);
     if(coroutine[0] != 10) fail("Nested coroutine ID not equal", __func__, __LINE__);
     if(co_getret(coroutine[0]) != 200) fail("Nested coroutine return value failed", __func__, __LINE__);
+
+    printf("Nested creation passed!\n");
+
     // test nested and get status
     for(int i = 0; i < 12; ++i) if(co_status(i) != FINISHED) fail("Coroutine failed at status error", __func__, __LINE__);
     // test yield and get status

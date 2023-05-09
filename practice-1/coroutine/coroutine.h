@@ -11,7 +11,8 @@ typedef long long cid_t;
 #define READY (0)
 
 struct coroutine;
-struct coroutine_pool;  // schedule
+struct thread_data;  // schedule
+struct schedule;
 typedef int (*coroutine_func)(void);    // 定义函数指针
 //typedef void (*coroutine_func)(struct coroutine_pool *, void *ud);    // 定义函数指针
 
@@ -22,5 +23,8 @@ int co_yield();
 int co_waitall();
 int co_wait(int cid);
 int co_status(int cid);
+
+void co_resume(int id);
+//static void _save_stack(struct coroutine *co, char *top);
 
 #endif
