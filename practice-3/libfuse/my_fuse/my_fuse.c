@@ -72,9 +72,15 @@ static const struct fuse_opt option_spec[] = {
         FUSE_OPT_END
 };
 
+struct node{
+    char *path;                 // keywords
+    struct memfs_file *file;    // real file info
+    struct node *next;          // next node
+};
+
 // global read/write lock of file
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER, lock_write = PTHREAD_MUTEX_INITIALIZER;
-static struct rb_root root = RB_ROOT;
+static struct node *head = NULL;
 static struct statvfs stat_infos;  // stat info
 
 FILE *debug_fp;
@@ -86,7 +92,7 @@ static struct memfs_file {
     struct options *data;    // filename & contents
 
     struct stat file_stat;
-    struct rb_node node;
+    // struct rb_node node;
     pthread_mutex_t lock;
     int attr;               // 0: file, 1: directory
 };
@@ -104,7 +110,7 @@ static inline void __do_update_times(struct memfs_file *pf, int which) {
     }
 }
 
-static inline const char *get_file_name(const char *str) {
+static inline const char *__get_file_name(const char *str) {
     // str: /mnt/d/test
     // return: test
     const char *lastSlash = strrchr(str, '/');  // 从右边开始第一个出现的位置
@@ -112,51 +118,72 @@ static inline const char *get_file_name(const char *str) {
     else return lastSlash + 1;
 }
 
-//---------------------------------------------------------------basic operations for red_black tree
-
-static int __insert(struct rb_root *root, struct memfs_file *pf) {
-    struct rb_node **new = &(root->rb_node), *parent = NULL;
-
-    /* Figure out where to put new node */
-    while (*new) {
-        struct memfs_file *this = container_of(*new, struct memfs_file, node);
-        int result = strcmp(pf->path, this->path);
-        parent = *new;
-        if (result < 0) {
-            new = &((*new)->rb_left);
-        } else if (result > 0) {
-            new = &((*new)->rb_right);
-        } else {
-            fprintf(debug_fp, "%s is exist!!!\n", pf->path);
-            return -1;
-        }
+static inline int __check_permission(struct memfs_file *pf, int permission) {
+    if (!pf) {
+        return -ENOENT;
     }
 
-    /* Add new node and re_balance tree. */
-    rb_link_node(&pf->node, parent, new);
-    rb_insert_color(&pf->node, root);
+    if (permission == 0) {  // check read
+        if (pf->file_stat.st_mode & S_IRUSR) {  // user read
+            return 0;
+        } else {
+            return -EACCES;
+        }
+    } else if (permission == 1) {   // check write
+        if (pf->file_stat.st_mode & S_IWUSR) {  // user write
+            return 0;
+        } else {
+            return -EACCES;
+        }
+    } else if (permission == 2) {   // check execute
+        if (pf->file_stat.st_mode & S_IXUSR) {  // user execute
+            return 0;
+        } else {
+            return -EACCES;
+        }
+    }
     return 0;
 }
 
-static struct memfs_file *__search(struct rb_root *root, const char *path) {
+//---------------------------------------------------------------basic operations for Linked_list
+
+struct node *create_node(char *path) {
+    struct node *new_node = (struct node *) malloc(sizeof(struct node));
+    new_node->path = strdup(path);
+    new_node->next = NULL;
+    return new_node;
+}
+
+static int __insert(struct memfs_file *pf) {
+    struct node *new_node = create_node(pf->path);
+    new_node->file = pf;
+
+    if (head == NULL) {
+        head = new_node;
+    } else {
+        struct node *p = head;
+        while (p->next != NULL) {
+            p = p->next;
+        }
+        p->next = new_node;
+    }
+    return 0;
+}
+
+static struct memfs_file *__search(const char *path) {
     struct memfs_file *pf = NULL;
-    struct rb_node *node = root->rb_node;
+    struct node *p = head;
 
-    while (node) {
-        pf = container_of(node, struct memfs_file, node);
-
-        int result = strcmp(path, pf->path);
-        if (result < 0) {
-            node = node->rb_left;
-        } else if (result > 0) {
-            node = node->rb_right;
-        } else {
+    while (p) {
+        pf = p->file;
+        if (strcmp(path, pf->path) == 0) {
             return pf;
         }
+        p = p->next;
     }
 
 //  fprintf(debug_fp, "%s not found!!!\n", path);
-  return NULL;
+    return NULL;
 }
 
 static inline void __free(struct memfs_file *pf) {
@@ -169,15 +196,28 @@ static inline void __free(struct memfs_file *pf) {
     free(pf);
 }
 
-static int __delete(struct rb_root *root, const char *path) {
-    struct memfs_file *pf = __search(root, path);
+static int __delete(const char *path) {
+    struct memfs_file *pf = __search(path);
     if (!pf) {
         return -1;
     }
 
     int blocks = pf->file_stat.st_blocks;
-    rb_erase(&pf->node, root);
-    __free(pf);
+    struct node *p = head, *pre = NULL;
+    while (p) {
+        if (strcmp(p->path, path) == 0) {
+            if (pre == NULL) {
+                head = p->next;
+            } else {
+                pre->next = p->next;
+            }
+            __free(pf);
+            free(p);
+            break;
+        }
+        pre = p;
+        p = p->next;
+    }
 
     return blocks;
 }
@@ -186,18 +226,19 @@ static int __delete(struct rb_root *root, const char *path) {
 
 static struct memfs_file *__new(const char *path, mode_t mode, int attr) {
     // prevent illegal insert
-    if (__search(&root, path)) return -EEXIST;
+    if (__search(path)) return -EEXIST;
 
     struct options *new_option = malloc(sizeof(struct options));
-    new_option->filename = strdup(get_file_name(path));
+    new_option->filename = strdup(__get_file_name(path));
     new_option->contents = strdup("");
     struct memfs_file *new_node = malloc(sizeof(struct memfs_file));
     new_node->path = strdup(path);
     new_node->data = new_option;
     new_node->file_stat.st_mode = mode;
     new_node->attr = attr;
+    new_node->lock = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
 
-    __insert(&root, new_node);
+    __insert(new_node);
     return new_node;
 }
 
@@ -217,12 +258,14 @@ static void *my_init(struct fuse_conn_info *conn,
     stat_infos.f_ffree = MAX_INODE;                 /* Number of free inodes */
     stat_infos.f_favail = MAX_INODE;                 /* Number of free inodes for unprivileged users */
     stat_infos.f_fsid = 0x0123456701234567;        /* Filesystem ID */
-//      .f_flags   = 0,                         /* Mount flags */
+    stat_infos.f_flag = 0,                         /* Mount flags */
     stat_infos.f_namemax = MAX_NAME;                  /* Maximum filename length */
 
     struct memfs_file *pf = __new("/", S_IFDIR | 0755, 1);      // add root path
     pf->file_stat.st_gid = getgid();
     pf->file_stat.st_uid = getuid();
+    pf->file_stat.st_nlink = 2;
+    
     __do_update_times(pf, U_ALL);
 
     return NULL;
@@ -238,7 +281,7 @@ static int my_getattr(const char *path, struct stat *stbuf,
 
     pthread_mutex_lock(&lock);
 
-    struct memfs_file *pf = __search(&root, path);
+    struct memfs_file *pf = __search(path);
     if (!pf) {
         pthread_mutex_unlock(&lock);
         return -ENOENT;
@@ -256,10 +299,13 @@ static int my_getattr(const char *path, struct stat *stbuf,
  * @path   - "/tmp/1.txt"
  *
  * return: /1.txt
+ * 
+ * It's equal to basename() function
  */
 static inline const char *__is_parent(const char *parent, const char *path) {
     if (parent[1] == '\0' && parent[0] == '/' && path[0] == '/') {
-        return path;
+        if (path[1] != '\0') return path;
+        else return NULL;       // both equals to "/", return NULL.
     }
 
     while (*parent != '\0' && *path != '\0' && *parent == *path) {
@@ -269,25 +315,25 @@ static inline const char *__is_parent(const char *parent, const char *path) {
 }
 
 static int __do_readdir(const char *dirname, void *buf, fuse_fill_dir_t filler) {
-    struct rb_node *node = NULL;
-    struct memfs_file *pentry = __search(&root, dirname);
+    struct node *p = NULL;
+    struct memfs_file *pentry = __search(dirname);
     if (!pentry) {      // node not found
         return -ENOENT;
     } else if (pentry->attr != 1) {     // not a directory
         return -ENOTDIR;                // (!S_ISDIR(pentry->file_stat.st_mode))
     }
 
-    for (node = rb_next(&pentry->node); node; node = rb_next(node)) {
-        const struct memfs_file *pf = rb_entry(node, struct memfs_file, node);
+    for (p = head; p; p = p->next) {
+        const struct memfs_file *pf = p->file;
         const char *basename = __is_parent(dirname, pf->path);
 
-        if (!basename) {
-            break;
+        if (!basename) {        // linklist need to transverse all nodes, so can't break
+            continue;
         } else if (strchr(basename + 1, '/')) {  // find '/' after basename
             // only return first child
             continue;
         }
-        filler(buf, basename + 1, &(pf->file_stat), 0, 0);
+        filler(buf, basename + 1, &(pf->file_stat), 0, 0);  // filler函数中填写的文件名为basename，不能带'/'
         fprintf(debug_fp, " readdir: %10s, path: %10s\n", basename, pf->path);
     }
 
@@ -310,6 +356,8 @@ static int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
         filler(buf, "..", NULL, 0, 0);
     }
 
+    __check_permission(__search(path), 0);
+
     pthread_mutex_lock(&lock);
     res = __do_readdir(path, buf, filler);
     pthread_mutex_unlock(&lock);
@@ -323,11 +371,13 @@ static int my_access(const char *path, int mask) {
     fprintf(debug_fp, "%s: %s\n", __FUNCTION__, path);
 
     pthread_mutex_lock(&lock);
-    struct memfs_file *pf = __search(&root, path);
+    struct memfs_file *pf = __search(path);
     if (!pf) {
         res = -ENOENT;
     }
     pthread_mutex_unlock(&lock);
+    
+    __check_permission(pf, mask);
 
     return res;
 }
@@ -345,7 +395,7 @@ static int my_open(const char *path, struct fuse_file_info *fi) {
     fprintf(debug_fp, "%s: %s\n", __FUNCTION__, path);
 
     pthread_mutex_lock(&lock);
-    pf = __search(&root, path);
+    pf = __search(path);
     if (!pf) {
         if ((fi->flags & O_ACCMODE) == O_RDONLY ||
             !(fi->flags & O_CREAT)) {   // read-only
@@ -371,13 +421,14 @@ static int my_read(const char *path, char *buf, size_t size, off_t offset,
     size_t len;
     (void) fi;
 
-    fprintf(debug_fp, "%s: %s\n", __FUNCTION__, path);
+    fprintf(debug_fp, "%s: %s, size = %d, offset = %d\n", __FUNCTION__, path, size, offset);
 
-    struct memfs_file *pf = __search(&root, path);
-    if (!pf || strcmp(get_file_name(path), pf->data->filename) != 0) { // path here may contain parent directory, like /sss/a.txt
+    struct memfs_file *pf = __search(path);
+    if (!pf || strcmp(__get_file_name(path), pf->data->filename) != 0) { // path here may contain parent directory, like /sss/a.txt
         fprintf(debug_fp, "can't find file at %s\n", path);
         return -ENOENT;
     }
+    __check_permission(pf, 0);   // check read permission
 
     len = strlen(pf->data->contents);
     if (offset < len) {
@@ -397,22 +448,26 @@ static int my_write(const char *path,
                     const char *buf, size_t size, off_t offset,
                     struct fuse_file_info *fi) {
     struct memfs_file *pf = (struct memfs_file *) fi->fh;
-    fprintf(debug_fp, "%s: %s, size: %zd\n", __FUNCTION__, path, size);
+    fprintf(debug_fp, "%s: %s, info: %s, size: %zd\n", __FUNCTION__, path, buf, size);
 
     // Check whether the file was opened for reading
 //    blkcnt_t req_blocks = (offset + size + BLOCKSIZE - 1) / BLOCKSIZE;
 
+    __check_permission(pf, 1);   // check whether we can write to the file
+
     pthread_mutex_lock(&pf->lock);
     // writing buf to contents
     size_t len = strlen(pf->data->contents);
-    void *new_data = realloc(pf->data->contents, sizeof(char) * (len + size + 1));
+    void *new_data = realloc(pf->data->contents, sizeof(char) * (len + size));
     if (!new_data) {
         pthread_mutex_unlock(&pf->lock);
         return -ENOMEM;      // memory is not enough
     }
     pf->data->contents = new_data;
+    fprintf(debug_fp, "old data: %s\n", new_data);
     strcat(pf->data->contents, buf);    // connect new buf
-    strcat(pf->data->contents, "\0");
+    // strcat(pf->data->contents, "\0");
+    fprintf(debug_fp, "new_data: %s\n", pf->data->contents);
 
     // write to another file to realize chatting...
     // example: echo Hello > bot2/bot1, then we should find bot1/bot2 with Hello
@@ -425,25 +480,29 @@ static int my_write(const char *path,
         strcpy(new_path, tmp);
         strncat(new_path, path, tmp - path);
 
-        struct memfs_file *pf2 = __search(&root, new_path);
+        struct memfs_file *pf2 = __search(new_path);
         if (!pf2) {
             pthread_mutex_unlock(&pf->lock);
             return -ENONET;
         }
 
         size_t len2 = strlen(pf2->data->contents);
-        void *new_data_2 = realloc(pf2->data->contents, sizeof(char) * (len2 + size + 1));
+        void *new_data_2 = realloc(pf2->data->contents, sizeof(char) * (len2 + size));
         if (!new_data_2) {
             pthread_mutex_unlock(&pf->lock);
             return -ENOMEM;      // memory is not enough
         }
         pf2->data->contents = new_data_2;
         strcat(pf2->data->contents, buf);    // connect new buf
-        strcat(pf2->data->contents, "\0");
+        // strcat(pf2->data->contents, "\0");
+        off_t minsize2 = len2 + size;
+        if (minsize2 > pf2->file_stat.st_size) {
+            pf2->file_stat.st_size = minsize2;
+        }
     }
 
     // Update file size if necessary
-    off_t minsize = offset + size;
+    off_t minsize = len + size;
     if (minsize > pf->file_stat.st_size) {
         pf->file_stat.st_size = minsize;
     }
@@ -463,9 +522,11 @@ static int my_unlink(const char *path) {
     int res = 0, blocks = 0;
     fprintf(debug_fp, "%s: %s\n", __FUNCTION__, path);
 
+    __check_permission(__search(path), 1);   // check whether we can write to the file
+    
     pthread_mutex_lock(&lock);
 
-    blocks = __delete(&root, path);
+    blocks = __delete(path);
     if (blocks < 0) {
         pthread_mutex_unlock(&lock);
         return -ENOENT;
@@ -482,6 +543,8 @@ static int my_unlink(const char *path) {
 static int my_mkdir(const char *path, mode_t mode) {
     int res = 0;
     struct memfs_file *pf = NULL;
+
+    __check_permission(pf, 1);   // check whether we can write to the file
 
     pthread_mutex_lock(&lock);
     pf = __new(path, S_IFDIR | mode, 1);
@@ -500,8 +563,10 @@ static int my_rmdir(const char *path) {
     int res = 0;
     fprintf(debug_fp, "%s: %s\n", __FUNCTION__, path);
 
+    __check_permission(__search(path), 1);   // check whether we can write to the file
+
     pthread_mutex_lock(&lock);
-    if (__delete(&root, path) < 0) {
+    if (__delete(path) < 0) {
         res = -ENOENT;
     }
     pthread_mutex_unlock(&lock);
@@ -510,9 +575,11 @@ static int my_rmdir(const char *path) {
 
 static int my_mknod(const char *path, mode_t mode, dev_t rdev) {
     int res = 0;
-    struct memfs_file *pf = __search(&root, path);
+    struct memfs_file *pf = __search(path);
     if (pf) return -EEXIST;
     fprintf(debug_fp, "%s: %s\n", __FUNCTION__, path);
+
+    __check_permission(pf, 1);   // check whether we can write to the file
 
     pthread_mutex_lock(&lock);
     pf = __new(path, mode, 0);
@@ -531,7 +598,7 @@ static int my_mknod(const char *path, mode_t mode, dev_t rdev) {
         strcpy(new_path, tmp);
         strncat(new_path, path, tmp - path);
 
-        struct memfs_file *pf2 = __search(&root, new_path);
+        struct memfs_file *pf2 = __search(new_path);
         if (pf2) {
             pthread_mutex_unlock(&lock);
             return -EEXIST;
@@ -540,7 +607,7 @@ static int my_mknod(const char *path, mode_t mode, dev_t rdev) {
     }
 
     stat_infos.f_favail = --stat_infos.f_ffree;
-    // __do_update_times(pf, U_ALL);
+    __do_update_times(pf, U_ALL);
 
     pthread_mutex_unlock(&lock);
     return res;
@@ -548,7 +615,7 @@ static int my_mknod(const char *path, mode_t mode, dev_t rdev) {
 
 static int my_utimes(const char *path, const struct timespec tv[2],
                      struct fuse_file_info *fi) {
-    struct memfs_file *pf = __search(&root, path);
+    struct memfs_file *pf = __search(path);
     fprintf(debug_fp, "%s: %s\n", __FUNCTION__, path);
 
     if (!pf) {
