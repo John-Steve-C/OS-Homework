@@ -1,5 +1,5 @@
 all: 
-	gcc -o task3 main.c
+	gcc -o task3 main.c -g
 run:
 	./task3
 

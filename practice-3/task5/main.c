@@ -12,18 +12,18 @@ int main(){
     if (fd == -1)
     {
         /* code */
+        printf("Open test file failed!\n");
+        return 0;
     }
     //write 'hello fcntl!' to file
 
     /* code */
-
-    
+    write(fd, "hello fcntl!", 12);
 
     // DUPLICATE FD
 
     /* code */
-    
-    
+    int new_fd = fcntl(fd, F_DUPFD, 0);
 
     pid = fork();
 
@@ -38,13 +38,19 @@ int main(){
     if(pid > 0){
         // PARENT PROCESS
         //set the lock
+        fl.l_type = F_WRLCK;
+        fcntl(fd, F_SETLK, &fl);
 
         //append 'b'
-        
+        write(fd, "b", 1);
+
         //unlock
         sleep(3);
+        
+        fl.l_type = F_UNLCK;
+        fcntl(fd, F_SETLK, &fl);
 
-        // printf("%s", str); the feedback should be 'hello fcntl!ba'
+        // printf("%s", str); // the feedback should be 'hello fcntl!ba'
         
         exit(0);
 
@@ -52,8 +58,9 @@ int main(){
         // CHILD PROCESS
         sleep(2);
         //get the lock
-        
+        fcntl(fd, F_GETLK, &fl);
         //append 'a'
+        write(fd, "a", 1);
 
         exit(0);
     }

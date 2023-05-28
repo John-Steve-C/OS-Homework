@@ -12,7 +12,7 @@ int main(int argc, char *argv[]) {
 
 	message = (char *) mmap(NULL, BUF_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
-	if (fork() == 0) {
+	if (fork() == 0) {	// 表示返回创建的子进程
 		sleep(1);
 		printf("child got a message :%s\n", message);
 		sprintf(message, "%s", "hi, dad, this is son");

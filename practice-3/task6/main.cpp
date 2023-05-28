@@ -17,6 +17,7 @@ int main()
 	int sockfd;		
 
     /* code */
+	ioctl(sockfd, _IO('c', 0));
 	
 	struct ifconf ifc;
 	caddr_t buf;
@@ -34,6 +35,7 @@ int main()
 	//获取所有接口信息
 	
     /* code */
+	ioctl(sockfd, SIOCGIFCONF, &ifc);
 	
 	//遍历每一个ifreq结构
 	struct ifreq *ifr;
@@ -52,6 +54,7 @@ int main()
 		ifrcopy = *ifr;
 
 		/* code */
+		ioctl(sockfd, SIOCGIFBRDADDR, &ifrcopy);
 
 		cout << "broad addr: "
 			 << inet_ntoa(((struct sockaddr_in*)&(ifrcopy.ifr_addr))->sin_addr)
@@ -60,6 +63,7 @@ int main()
 		ifrcopy = *ifr;
 		
         /* code */
+		ioctl(sockfd, SIOCGIFMTU, &ifrcopy);
 
 		cout << "mtu: " << ifrcopy.ifr_mtu << endl;
 		cout << endl;
