@@ -24,6 +24,7 @@ int main(){
 
     /* code */
     int new_fd = fcntl(fd, F_DUPFD, 0);
+    char *str;
 
     pid = fork();
 
@@ -50,7 +51,10 @@ int main(){
         fl.l_type = F_UNLCK;
         fcntl(fd, F_SETLK, &fl);
 
-        // printf("%s", str); // the feedback should be 'hello fcntl!ba'
+        // int fd2 = open("test.txt", O_RDONLY);
+        read(fd, str, 14);
+        // str[14] = '\0';
+        printf("file after: %s", str); // the feedback should be 'hello fcntl!ba'
         
         exit(0);
 

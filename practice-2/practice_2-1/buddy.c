@@ -12,7 +12,7 @@ struct block {
     // because page size = 4096 * 2^(rank-1)
 };
 
-// 1 rank = 4K = 4096 Byte
+// 1 rank = 4KB = 4096 Byte
 
 struct block *free_area[MAXRANK];    // linked list
 struct block *free_area_tail[MAXRANK];  // tail of each linked list

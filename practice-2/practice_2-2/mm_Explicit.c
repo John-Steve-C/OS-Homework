@@ -124,7 +124,7 @@ static void remove_free_block(void *bp) {
         SET_PREV_FREE_BLOCK(next_free_block, (long) prev_free_block);
     }
 
-//    mm_checkheap(1);
+   mm_checkheap(1);
 }
 
 // insert before head
@@ -154,22 +154,22 @@ static void *merge_block(void *bp) {
         remove_free_block(NEXT_BLOCK(bp));
 
         size += GET_SIZE(HEADER(NEXT_BLOCK(bp)));
-        SET(HEADER(bp), PACK(size,0));
-        SET(FOOTER(bp), PACK(size,0));
+        SET(HEADER(bp), PACK(size, 0));
+        SET(FOOTER(bp), PACK(size, 0));
     } else if (!prev_alloc && next_alloc) {
         remove_free_block(PREV_BLOCK(bp));
 
         size += GET_SIZE(HEADER(PREV_BLOCK(bp)));
-        SET(FOOTER(bp), PACK(size,0));
-        SET(HEADER(PREV_BLOCK(bp)), PACK(size,0));
+        SET(FOOTER(bp), PACK(size, 0));
+        SET(HEADER(PREV_BLOCK(bp)), PACK(size, 0));
         bp = PREV_BLOCK(bp);
     } else {
         remove_free_block(NEXT_BLOCK(bp));
         remove_free_block(PREV_BLOCK(bp));
 
         size += GET_SIZE(HEADER(PREV_BLOCK(bp))) + GET_SIZE(FOOTER(NEXT_BLOCK(bp)));
-        SET(HEADER(PREV_BLOCK(bp)), PACK(size,0));
-        SET(FOOTER(NEXT_BLOCK(bp)), PACK(size,0));
+        SET(HEADER(PREV_BLOCK(bp)), PACK(size, 0));
+        SET(FOOTER(NEXT_BLOCK(bp)), PACK(size, 0));
         bp = PREV_BLOCK(bp);
     }
 
@@ -184,16 +184,16 @@ static void *extend_heap(size_t words) {
     // Allocate an even number of words to maintain alignment
 //    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     // words is the multiple of 8(DSIZE)
-    if ((long)(bp = mem_sbrk(size)) == -1) return NULL;
+    if ((long) (bp = mem_sbrk(size)) == -1) return NULL;
 
     // Initialize free block header/footer and the epilogue header
-    SET(HEADER(bp), PACK(size,0));
-    SET(FOOTER(bp), PACK(size,0));
+    SET(HEADER(bp), PACK(size, 0));
+    SET(FOOTER(bp), PACK(size, 0));
 
     SET_PREV_FREE_BLOCK(bp, 0);
     SET_NEXT_FREE_BLOCK(bp, 0);
 
-    SET(HEADER(NEXT_BLOCK(bp)), PACK(0,1));
+    SET(HEADER(NEXT_BLOCK(bp)), PACK(0, 1));
 
     return merge_block(bp);
 }
@@ -214,23 +214,23 @@ static void place(void *bp, size_t size) {
     size_t csize = GET_SIZE(HEADER(bp));
     remove_free_block(bp);
 
-    if ((csize - size) >= (2*BSIZE)) {
+    if ((csize - size) >= (2 * BSIZE)) {
         // split
-        SET(HEADER(bp), PACK(size,1));
-        SET(FOOTER(bp), PACK(size,1));
+        SET(HEADER(bp), PACK(size, 1));
+        SET(FOOTER(bp), PACK(size, 1));
 
         bp = NEXT_BLOCK(bp);
-        SET(HEADER(bp), PACK(csize-size,0));
-        SET(FOOTER(bp), PACK(csize-size,0));
+        SET(HEADER(bp), PACK(csize - size, 0));
+        SET(FOOTER(bp), PACK(csize - size, 0));
         SET_PREV_FREE_BLOCK(bp, 0);
         SET_NEXT_FREE_BLOCK(bp, 0);
         merge_block(bp);    // merge after split will improve performance
     } else {
-        SET(HEADER(bp), PACK(csize,1));
-        SET(FOOTER(bp), PACK(csize,1));
+        SET(HEADER(bp), PACK(csize, 1));
+        SET(FOOTER(bp), PACK(csize, 1));
     }
 
-//    mm_checkheap(1);
+   mm_checkheap(1);
 }
 
 /*
@@ -238,14 +238,14 @@ static void place(void *bp, size_t size) {
  */
 int mm_init(void) {
     // Create the initial empty heap
-    if ((heap_list = mem_sbrk(8 * WSIZE)) == (void*)-1) return -1;
+    if ((heap_list = mem_sbrk(8 * WSIZE)) == (void *) -1) return -1;
 
     SET(heap_list, 0);                                        // Alignment padding
-    SET(heap_list + (WSIZE * 1), PACK(BSIZE,1));     // Prologue header
+    SET(heap_list + (WSIZE * 1), PACK(BSIZE, 1));     // Prologue header
     SET(heap_list + (WSIZE * 2), 0);                      // Prologue prev
     SET(heap_list + (WSIZE * 3), 0);                      // Prologue succ
-    SET(heap_list + (WSIZE * 4), PACK(BSIZE,1));    // Prologue footer
-    SET(heap_list + (WSIZE * 5), PACK(0,1));   // Epilogue header
+    SET(heap_list + (WSIZE * 4), PACK(BSIZE, 1));    // Prologue footer
+    SET(heap_list + (WSIZE * 5), PACK(0, 1));   // Epilogue header
     SET(heap_list + (WSIZE * 6), 0);                      // Epilogue prev
     SET(heap_list + (WSIZE * 7), 0);                      // Epilogue succ
 
@@ -280,7 +280,7 @@ void *malloc(size_t size) {
         return bp;
     } else {
         // No fit found. Get more memory and place the block
-        extend_size = MAX(asize,CHUNKSIZE);
+        extend_size = MAX(asize, CHUNKSIZE);
         if ((bp = extend_heap(extend_size)) == NULL) return NULL;
         place(bp, asize);
         return bp;
@@ -295,13 +295,13 @@ void *malloc(size_t size) {
 void free(void *ptr) {
     if (ptr == NULL) return;
     size_t size = GET_SIZE(HEADER(ptr));
-    SET(HEADER(ptr), PACK(size,0));
-    SET(FOOTER(ptr), PACK(size,0));
+    SET(HEADER(ptr), PACK(size, 0));
+    SET(FOOTER(ptr), PACK(size, 0));
     SET_PREV_FREE_BLOCK(ptr, 0);
     SET_NEXT_FREE_BLOCK(ptr, 0);
     merge_block(ptr);
 
-//    mm_checkheap(1);
+   mm_checkheap(1);
 }
 
 /*
@@ -362,4 +362,92 @@ void *calloc(size_t nmemb, size_t size) {
 void mm_checkheap(int verbose) {
     /*Get gcc to be quiet. */
     verbose = verbose;
+
+    char *ptr;
+
+    // check epilogue and prologue blocks
+    if (GET_SIZE(HEADER(heap_list)) != BSIZE ||
+        GET_ALLOC(HEADER(heap_list)) != 1 ||
+        GET_SIZE(FOOTER(heap_list)) != BSIZE || GET_ALLOC(FOOTER(heap_list)) != 1)
+        printf("Prologue block error\n");
+
+    ptr = heap_list;
+    while (GET_SIZE(HEADER(ptr)) != 0) {
+        ptr = NEXT_BLOCK(ptr);
+    }
+    if (GET_SIZE(HEADER(ptr)) != 0 || GET_ALLOC(HEADER(ptr)) != 1)
+        printf("Epilogue block error\n");
+
+    // check the boundary of heap
+    if (mem_heap_lo() + BSIZE != heap_list) {
+        printf("mem_heap_lo: %p, heap_head: %p\n", mem_heap_lo(), heap_list);
+        printf("Heap boundary error\n");
+    }
+    if (mem_heap_hi() + 1 != (void *) ptr) {
+        printf("mem_heap_hi: %p, heap_end: %p\n", mem_heap_hi(), ptr);
+        printf("Heap boundary error\n");
+    }
+
+    // check the header and footer of each block
+    ptr = heap_list;
+    while (GET_SIZE(HEADER(ptr)) != 0) {
+        // check the consistency of prev and next pointers
+        if (PREV_BLOCK(NEXT_BLOCK(ptr)) != ptr) {
+            printf("Prev and next pointers error at %p\n", ptr);
+        }
+
+        // check the consistency of header and footer
+        if (GET_SIZE(HEADER(ptr)) != GET_SIZE(FOOTER(ptr))) {
+            printf("Header and footer size error at %p\n", ptr);
+        } else if (GET_ALLOC(HEADER(ptr)) != GET_ALLOC(FOOTER(ptr)))
+            printf("Header and footer alloc error\n");
+
+        // address alignment
+        if ((unsigned long long) ptr % DSIZE != 0)
+            printf("Block alignment error\n");
+
+        // check the continuous of heap
+        if (ptr + GET_SIZE(HEADER(ptr)) != NEXT_BLOCK(ptr))
+            printf("Block continuous error 1\n");
+        if (ptr != heap_list) {
+            if (FOOTER(PREV_BLOCK(ptr)) != ptr - BSIZE)
+                printf("Block continuous error 2\n");
+        }
+
+        ptr = NEXT_BLOCK(ptr);
+    }
+
+    // check merge
+    int cnt = 0;
+    ptr = heap_list;
+    while (GET_SIZE(HEADER(ptr)) != 0) {
+        if (GET_ALLOC(HEADER(ptr)) == 0 && GET_ALLOC(HEADER(NEXT_BLOCK(ptr))) == 0)
+            printf("Merge error at block %p\n", ptr);
+        ptr = NEXT_BLOCK(ptr);
+        cnt++;
+    }
+
+    // check the free list
+    ptr = free_list;
+    while (ptr != NULL) {
+        if (!((char *) mem_heap_lo() < ptr && ptr < (char *) mem_heap_hi()))
+            printf("Free list boundary error\n");
+
+        if (GET_ALLOC(HEADER(ptr)) != 0)
+            printf("Allocated block in the free list at %p\n", ptr);
+
+        if (GET_PREV_FREE_BLOCK(ptr) != NULL &&
+            (char *) GET_NEXT_FREE_BLOCK(GET_PREV_FREE_BLOCK(ptr)) != ptr)
+            printf("Prev and next pointer error at %p\n", ptr);
+
+        void *tmp = heap_list;
+        while (GET_SIZE(HEADER(ptr)) != 0) {
+            if (tmp == ptr)
+                break;
+            tmp = NEXT_BLOCK(tmp);
+        }
+        if (GET_SIZE(HEADER(tmp)) == 0)
+            printf("Block in free list is not in the heap\n");
+        ptr = (char *) GET_NEXT_FREE_BLOCK(ptr);
+    }
 }

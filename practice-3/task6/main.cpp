@@ -17,8 +17,10 @@ int main()
 	int sockfd;		
 
     /* code */
-	ioctl(sockfd, _IO('c', 0));
-	
+	// ioctl(sockfd, _IO('c', 0));
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	//AF_INET表示ipv4，SOCK_STREAM表示TCP协议，0表示默认协议
+
 	struct ifconf ifc;
 	caddr_t buf;
 	int len = 100;
@@ -35,7 +37,7 @@ int main()
 	//获取所有接口信息
 	
     /* code */
-	ioctl(sockfd, SIOCGIFCONF, &ifc);
+	ioctl(sockfd, SIOCGIFCONF, &ifc);	// 获取网络接口列表
 	
 	//遍历每一个ifreq结构
 	struct ifreq *ifr;
@@ -59,7 +61,7 @@ int main()
 		cout << "broad addr: "
 			 << inet_ntoa(((struct sockaddr_in*)&(ifrcopy.ifr_addr))->sin_addr)
 			 << endl;
-		//获取mtu
+		//获取mtu：Maximum Transmission Unit 最大传输单元
 		ifrcopy = *ifr;
 		
         /* code */
